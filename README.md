@@ -54,7 +54,7 @@ No account is required for the core extension. No build step is required to inst
 3. Open `chrome://extensions` in Chrome.
 4. Enable **Developer mode**.
 5. Click **Load unpacked**.
-6. Select the **`extension`** folder — the one containing `manifest.json`.
+6. Select the **`extension`** folder - the one containing `manifest.json`.
 7. Pin **VulnWatch**, open a website, and click the extension icon.
 
 That's it. You may now return to having too many tabs open.

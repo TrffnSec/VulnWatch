@@ -1,0 +1,39 @@
+▶ service worker integration: scan, trust boundary, key lifetime, navigation, and exclusions
+  ✔ a worker restart releases interrupted scans for retry (1.551246ms)
+  ✔ a scan produces evidence and a badge (4.721832ms)
+  ✔ page messages cannot access keys or configuration (0.176176ms)
+  ✔ session key does not appear in state or local storage (0.543439ms)
+  ✔ changing key lifetime removes the previous copy (0.343948ms)
+  ✔ clearing observations preserves keys (0.985234ms)
+  ✔ old scan cannot overwrite a newer document (6.52011ms)
+  ✔ excluded origins lose their prior result and badge (0.73742ms)
+  ✔ removing an API key clears both storage areas (0.177928ms)
+✔ service worker integration: scan, trust boundary, key lifetime, navigation, and exclusions (17.619507ms)
+✔ runtime version is reported and gets an exact package mapping (1.662224ms)
+✔ plugin asset versions remain inferred (7.505103ms)
+✔ generic filenames alone do not trigger alerts (0.762668ms)
+✔ multiple versions survive consolidation (0.550379ms)
+✔ known CDN namespaces map scoped packages (0.280843ms)
+✔ fake CDN hostname does not get strong evidence (0.235645ms)
+✔ build IDs are never interpreted as Next.js versions (0.352751ms)
+✔ resource evidence strips secrets and URL fragments (0.171849ms)
+✔ unsupported schemes are not included (0.185779ms)
+✔ generator version and inferred language remain separate (0.410118ms)
+✔ partial versions are not sent as exact npm package versions (0.233832ms)
+✔ OSV withdrawn and unrelated advisories excluded (4.160617ms)
+✔ malformed provider response is an error, not a clean result (0.264809ms)
+✔ alias deduplication preserves sources (0.294914ms)
+✔ alert count excludes uncertainty, unavailable, partial, and muted results (1.004733ms)
+✔ settings reject arbitrary values and normalize exclusions (0.302876ms)
+✔ OSV request includes only package identity and version (2.315207ms)
+✔ OSV pagination is flagged as incomplete (0.325681ms)
+✔ provider HTTP failures cannot produce a clean result (0.500955ms)
+✔ package names matching object prototype properties are not technologies (0.229966ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 103.073031

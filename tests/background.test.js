@@ -18,7 +18,7 @@ session.values['page:2']={status:'checking',components:[],token:'interrupted'};
 await import('../extension/background.js');
 const sender={id:'test-extension',url:'chrome-extension://test-extension/ui/index.html'};
 const message=(data,from=sender)=>new Promise(resolve=>chrome.runtime.onMessage.listeners[0](data,from,resolve));
-const data=()=>({vulns:[{id:'GHSA-fixture',summary:'Test advisory',database_specific:{severity:'HIGH'},affected:[{package:{name:'jquery',ecosystem:'npm'},ranges:[{type:'SEMVER',events:[{introduced:'0'},{fixed:'3.5.0'}]}]}]}]});
+const data=()=>({vulns:[{id:'GHSA-fixture',aliases:['CVE-2020-11022'],summary:'Test advisory',database_specific:{severity:'HIGH'},affected:[{package:{name:'jquery',ecosystem:'npm'},ranges:[{type:'SEMVER',events:[{introduced:'0'},{fixed:'3.5.0'}]}]}]}]});
 const respond=()=>new Response(JSON.stringify(data()),{status:200});
 const tick=()=>new Promise(r=>setTimeout(r,0));
 test('service worker integration: scan, trust boundary, key lifetime, navigation, and exclusions',async t=>{
@@ -36,6 +36,30 @@ test('service worker integration: scan, trust boundary, key lifetime, navigation
    chrome.tabs.onUpdated.fire(1,{status:'loading',url:'https://fixture.test/two'},tabs.get(1));await tick();
    fetchHandler=async()=>respond();const second=await message({type:'scan',tabId:1,force:true});assert.equal(second.ok,true);release();await first;
    const current=(await message({type:'state',tabId:1})).data.page;assert.equal(current.path,'https://fixture.test/two');assert.equal(current.components[0].version,'3.4.2');assert.equal(current.status,'done');
+ });
+ await t.test('PD requires permission and key, validates advisory context, and never changes badge/state',async()=>{
+   const page=(await message({type:'state',tabId:1})).data.page;
+   const msg={type:'pdTemplates',tabId:1,token:page.token,cve:'CVE-2020-11022'};
+   assert.equal((await message(msg)).ok,false);grants.add('https://api.projectdiscovery.io/*');assert.equal((await message(msg)).ok,false);
+   await message({type:'saveKey',provider:'projectdiscovery',value:'pd-session-secret',storage:'session'});
+   let calls=0;fetchHandler=async()=>{calls++;return new Response(JSON.stringify({results:[{id:'metadata-example',classification:{'cve-id':['CVE-2020-11022']},name:'PD result',raw:'PRIVATE RAW'}],total:1}));};
+   const r=await message(msg);assert.equal(r.ok,true);assert.equal(r.data.templates.length,1);assert.equal(r.data.cached,false);
+   assert.equal((await message(msg)).data.cached,true);assert.equal(calls,1);
+   assert.equal((await message({...msg,cve:'CVE-2026-99999'})).ok,false);assert.equal((await message({...msg,token:'old-token'})).ok,false);assert.equal(calls,1);
+   const state=await message({type:'state',tabId:1});assert(!JSON.stringify(state).includes('pd-session-secret'));assert(!JSON.stringify(state).includes('PD result'));assert(!JSON.stringify(local.values).includes('pd-session-secret'));assert.equal(badges.get(1),'1');
+   await message({type:'settings',settings:{projectDiscoveryTeamId:'another_team'}});assert.equal((await message(msg)).data.cached,false);assert.equal(calls,2);
+   await message({type:'saveKey',provider:'projectdiscovery',value:'pd-new-secret',storage:'session'});assert.equal((await message(msg)).data.cached,false);assert.equal(calls,3);
+   const cloud=await message({type:'pdFindings',tabId:1,token:page.token});assert.equal(cloud.ok,false);assert.match(cloud.error,/Invalid/);
+ });
+ await t.test('PD findings exclude other hosts and are discarded on workspace change while pending',async()=>{
+   const page=(await message({type:'state',tabId:1})).data.page,msg={type:'pdFindings',tabId:1,token:page.token};
+   const fixture={data:[{vuln_id:'one',target:'https://fixture.test',vuln_status:'fixed'},{vuln_id:'other',target:'https://other.test'}],total_results:2,total_pages:1,current_page:1};
+   fetchHandler=async()=>new Response(JSON.stringify(fixture));const r=await message(msg);assert.equal(r.ok,true);assert.equal(r.data.findings.length,1);assert.equal(badges.get(1),'1');
+   let release;fetchHandler=()=>new Promise(resolve=>{release=()=>resolve(new Response(JSON.stringify(fixture)));});
+   const pending=message({...msg,refresh:true});for(let i=0;i<30&&!release;i++)await tick();assert(release);
+   await message({type:'settings',settings:{projectDiscoveryTeamId:'third_team'}});release();const stale=await pending;assert.equal(stale.ok,false);assert.match(stale.error,/Context changed/);
+   fetchHandler=async()=>new Response(JSON.stringify(fixture));assert.equal((await message(msg)).data.cached,false);
+   await message({type:'removeKey',provider:'projectdiscovery'});assert(!session.values['key:projectdiscovery']);assert(!local.values['key:projectdiscovery']);assert.equal((await message(msg)).ok,false);
  });
  await t.test('excluded origins lose their prior result and badge',async()=>{await message({type:'settings',settings:{exclusions:['https://fixture.test']}});const state=await message({type:'state',tabId:1});assert.equal(state.data.page,null);assert.equal(badges.get(1),'');assert.equal((await message({type:'scan',tabId:1})).ok,false);});
  await t.test('removing an API key clears both storage areas',async()=>{await message({type:'removeKey',provider:'wpscan'});assert(!session.values['key:wpscan']);assert(!local.values['key:wpscan']);});

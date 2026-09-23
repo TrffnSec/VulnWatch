@@ -1,9 +1,12 @@
+import {fetchProjectDiscoveryTemplates,fetchProjectDiscoveryFindings,testProjectDiscovery} from './core/projectdiscovery.js';
 import {capturePage,captureRuntime} from './core/capture.js';
 import {detect,exactPackageVersion} from './core/detect.js';
 import {DEFAULTS,validateSettings,alertCount} from './core/settings.js';
 import {PROVIDERS,fetchOSV,fetchGitHub,fetchWPScan,fetchNVD,testProvider} from './core/intel.js';
 
 const jobs=new Map(),lookups=new Map(),epochs=new Map();
+const pdCache=new Map(),pdPending=new Set();let pdGeneration=0;
+function clearProjectDiscovery(){pdGeneration++;pdCache.clear();}
 const CACHE_TTL=24*60*60*1000;
 const pageKey=id=>'page:'+id;
 const headerKey=id=>'headers:'+id;
@@ -113,6 +116,37 @@ async function refreshCache(){
   await chrome.storage.local.set({lastRefresh:result});await trimCache();return result;
 }
 async function validateComponent(id,key){const page=await getPage(id);const c=page?.components.find(c=>c.key===key);if(!c)throw new Error('Scan this page again before checking this component.');return c;}
+async function projectDiscovery(msg){
+  const generation=pdGeneration;
+  await providerPermission('projectdiscovery');
+  const key=(await getKey('projectdiscovery'))?.value;
+  if(!key)throw new Error('Add a ProjectDiscovery API key in Settings first.');
+  const page=await getPage(msg.tabId),epoch=epochs.get(msg.tabId);
+  if(!page||page.status!=='done'||page.token!==msg.token)throw new Error('The page changed. Re-inspect before looking up ProjectDiscovery.');
+  const tab=await chrome.tabs.get(msg.tabId);
+  if(originOf(tab.url)!==page.origin)throw new Error('The page changed. Re-inspect before looking up ProjectDiscovery.');
+  const s=await settings();
+  if(s.exclusions.includes(page.origin))throw new Error('This website is excluded.');
+  const templates=msg.type==='pdTemplates';
+  if(templates&&!page.components.some(c=>(c.advisories||[]).some(a=>[a.id,...(a.aliases||[])].includes(msg.cve))))throw new Error('Select a CVE from the current advisory results.');
+  const cacheId=templates?'template:'+msg.cve:'findings:'+page.origin;
+  const old=pdCache.get(cacheId),ttl=templates?3600000:300000;
+  const stillCurrent=async()=>{
+    const current=await getPage(msg.tabId);
+    if(generation!==pdGeneration||epoch!==epochs.get(msg.tabId)||current?.token!==page.token)throw new Error('Context changed. Request discarded; try again.');
+  };
+  if(old&&Date.now()-old.fetchedAt<ttl&&!msg.refresh){await stillCurrent();return {...old,cached:true};}
+  const pendingId=generation+':'+cacheId;
+  if(pdPending.has(pendingId)||pdPending.size>=2)throw new Error('A ProjectDiscovery lookup is already running. Please wait.');
+  pdPending.add(pendingId);
+  try{
+    const data=templates?await fetchProjectDiscoveryTemplates(msg.cve,key,s.projectDiscoveryTeamId):await fetchProjectDiscoveryFindings(page.origin,key,s.projectDiscoveryTeamId);
+    await stillCurrent();
+    const result={...data,fetchedAt:Date.now()};pdCache.delete(cacheId);pdCache.set(cacheId,result);
+    while(pdCache.size>50)pdCache.delete(pdCache.keys().next().value);
+    return {...result,cached:false};
+  }finally{pdPending.delete(pendingId);}
+}
 async function handle(msg,sender){
   await ready;
   // Only our extension UI may access configuration, keys, or provider requests.
@@ -121,9 +155,10 @@ async function handle(msg,sender){
     case 'state':return {settings:await settings(),page:Number.isInteger(msg.tabId)?await getPage(msg.tabId):null,keys:await keyStatuses(),lastRefresh:(await chrome.storage.local.get('lastRefresh')).lastRefresh||null,mutes:await muteList((await getPage(msg.tabId))?.origin),permissions:(await chrome.permissions.getAll()).origins};
     case 'scan':if(!Number.isInteger(msg.tabId))throw new Error('No page selected.');return await scan(msg.tabId,Boolean(msg.force));
     case 'settings':{
-      const next=validateSettings(msg.settings||{},await settings());
+      const priorSettings=await settings(),next=validateSettings(msg.settings||{},priorSettings);
+      if(next.projectDiscoveryTeamId!==priorSettings.projectDiscoveryTeamId)clearProjectDiscovery();
       if(next.notifications&&!await chrome.permissions.contains({permissions:['notifications']}))next.notifications=false;
-      await chrome.storage.local.set({settings:next});await applySettings(next);
+      await chrome.storage.local.set({settings:next});if(next.projectDiscoveryTeamId!==priorSettings.projectDiscoveryTeamId)clearProjectDiscovery();await applySettings(next);
       for(const tab of await chrome.tabs.query({}))if(tab.id){let page=await getPage(tab.id);if(page&&next.exclusions.includes(page.origin)){epochs.set(tab.id,(epochs.get(tab.id)||0)+1);jobs.delete(tab.id);await chrome.storage.session.remove(pageKey(tab.id));page=null;}await badge(tab.id,page);}
       return next;
     }
@@ -131,15 +166,17 @@ async function handle(msg,sender){
       if(!PROVIDERS[msg.provider])throw new Error('Unknown provider.');await providerPermission(msg.provider);
       const value=typeof msg.value==='string'?msg.value.trim():'';if(!value||value.length>2048||/[\s\x00-\x1f]/.test(value))throw new Error('Enter a valid API token without whitespace.');
       const k='key:'+msg.provider,storage=msg.storage==='local'?'local':'session';
-      await chrome.storage[storage].set({[k]:{value,storage}});await chrome.storage[storage==='local'?'session':'local'].remove(k);return {saved:true};
+      if(msg.provider==='projectdiscovery')clearProjectDiscovery();
+      await chrome.storage[storage].set({[k]:{value,storage}});await chrome.storage[storage==='local'?'session':'local'].remove(k);if(msg.provider==='projectdiscovery')clearProjectDiscovery();return {saved:true};
     }
-    case 'removeKey':if(!PROVIDERS[msg.provider])throw new Error('Unknown provider.');await chrome.storage.local.remove('key:'+msg.provider);await chrome.storage.session.remove('key:'+msg.provider);return {removed:true};
-    case 'testKey':await providerPermission(msg.provider);return testProvider(msg.provider,(await getKey(msg.provider))?.value);
+    case 'removeKey':if(!PROVIDERS[msg.provider])throw new Error('Unknown provider.');if(msg.provider==='projectdiscovery')clearProjectDiscovery();await chrome.storage.local.remove('key:'+msg.provider);await chrome.storage.session.remove('key:'+msg.provider);if(msg.provider==='projectdiscovery')clearProjectDiscovery();return {removed:true};
+    case 'testKey':await providerPermission(msg.provider);return msg.provider==='projectdiscovery'?testProjectDiscovery((await getKey(msg.provider))?.value,(await settings()).projectDiscoveryTeamId):testProvider(msg.provider,(await getKey(msg.provider))?.value);
     case 'github':{
       await providerPermission('github');const c=await validateComponent(msg.tabId,msg.key);if(!c.package||!exactPackageVersion(c.version))throw new Error('An exact package version is needed.');return fetchGitHub(c,(await getKey('github'))?.value);
     }
     case 'wpscan':await providerPermission('wpscan');return fetchWPScan(await validateComponent(msg.tabId,msg.key),(await getKey('wpscan'))?.value);
     case 'nvd':await providerPermission('nvd');return fetchNVD(msg.cve,(await getKey('nvd'))?.value);
+    case 'pdTemplates':case 'pdFindings':return projectDiscovery(msg);
     case 'refresh':return refreshCache();
     case 'mute':{
       const page=await getPage(msg.tabId),c=page?.components.find(c=>c.key===msg.key);if(!c?.advisories.some(a=>a.id===msg.id))throw new Error('This advisory is no longer in the current results.');
@@ -148,6 +185,7 @@ async function handle(msg,sender){
       await chrome.storage.local.set({mutes:Object.fromEntries(Object.entries(mutes).slice(-100))});await badge(msg.tabId,page);return {muted:mutes[page.origin].includes(token)};
     }
     case 'clear':{
+      clearProjectDiscovery();
       for(const id of jobs.keys())epochs.set(id,(epochs.get(id)||0)+1);jobs.clear();
       const all=await chrome.storage.local.get(null);await chrome.storage.local.remove(Object.keys(all).filter(k=>k.startsWith('osv:')||['lastRefresh','mutes'].includes(k)));
       await chrome.storage.session.remove(Object.keys(await chrome.storage.session.get(null)).filter(k=>!k.startsWith('key:')));
@@ -180,4 +218,4 @@ chrome.webRequest.onHeadersReceived.addListener(details=>{
     await chrome.storage.session.set({[headerKey(details.tabId)]:{page:u.origin+u.pathname,at:Date.now(),headers}});
   })().catch(()=>{});
 },{urls:['http://*/*','https://*/*'],types:['main_frame']},['responseHeaders']);
-chrome.permissions.onRemoved.addListener(()=>{ready.then(async()=>{for(const tab of await chrome.tabs.query({}))if(tab.id)await badge(tab.id,await getPage(tab.id));}).catch(()=>{});});
+chrome.permissions.onRemoved.addListener(()=>{clearProjectDiscovery();ready.then(async()=>{for(const tab of await chrome.tabs.query({}))if(tab.id)await badge(tab.id,await getPage(tab.id));}).catch(()=>{});});

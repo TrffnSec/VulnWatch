@@ -1,9 +1,10 @@
-export const DEFAULTS={theme:'auto',interfaceMode:'hybrid',watchEnabled:false,osvEnabled:true,autoUpdate:true,updateFrequency:'daily',notifications:false,alertThreshold:'all',exclusions:[]};
+export const DEFAULTS={theme:'auto',interfaceMode:'hybrid',watchEnabled:false,osvEnabled:true,autoUpdate:true,updateFrequency:'daily',notifications:false,alertThreshold:'all',exclusions:[],projectDiscoveryTeamId:''};
 export function validateSettings(input,current=DEFAULTS){
   const next={...DEFAULTS,...current};
   for(const [key,allowed] of Object.entries({theme:['light','dark','auto'],interfaceMode:['popup','sidepanel','hybrid'],updateFrequency:['daily','weekly'],alertThreshold:['all','high']}))if(allowed.includes(input[key]))next[key]=input[key];
   for(const key of ['watchEnabled','osvEnabled','autoUpdate','notifications'])if(typeof input[key]==='boolean')next[key]=input[key];
   if(Array.isArray(input.exclusions))next.exclusions=[...new Set(input.exclusions.filter(x=>typeof x==='string').map(x=>{try{const u=new URL(x);return ['http:','https:'].includes(u.protocol)?u.origin:null;}catch{return null;}}).filter(Boolean))].slice(0,100);
+  if(typeof input.projectDiscoveryTeamId==='string'){const id=input.projectDiscoveryTeamId.trim();if(id&&!/^[a-zA-Z0-9_-]{1,128}$/.test(id))throw new Error('Use a valid ProjectDiscovery workspace ID or leave it empty.');next.projectDiscoveryTeamId=id;}
   return next;
 }
 export function alertCount(components,threshold='all',muted=[]){

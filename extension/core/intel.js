@@ -1,7 +1,8 @@
 export const PROVIDERS={
-  wpscan:{name:'WPScan',origin:'https://wpscan.com/*'},
-  github:{name:'GitHub',origin:'https://api.github.com/*'},
-  nvd:{name:'NVD',origin:'https://services.nvd.nist.gov/*'}
+  wpscan:{name:'WPScan',origin:'https://wpscan.com/*',keyUrl:'https://wpscan.com/register/'},
+  github:{name:'GitHub',origin:'https://api.github.com/*',keyUrl:'https://github.com/settings/personal-access-tokens/new'},
+  nvd:{name:'NVD',origin:'https://services.nvd.nist.gov/*',keyUrl:'https://nvd.nist.gov/developers/request-an-api-key'},
+  projectdiscovery:{name:'ProjectDiscovery',origin:'https://api.projectdiscovery.io/*',keyUrl:'https://cloud.projectdiscovery.io/settings/api-key'}
 };
 const text=(s,max=1000)=>typeof s==='string'?s.slice(0,max):'';
 export function safeLink(value){try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:null;}catch{return null;}}
@@ -9,7 +10,7 @@ export async function requestJSON(url, options={}){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
   try{
     const response=await fetch(url,{...options,signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer',redirect:'error',cache:'no-store'});
-    if(!response.ok){if([401,403].includes(response.status))throw new Error('Access denied. Check the API key, plan, and permissions.');if(response.status===429)throw new Error('Provider rate limit reached. Try again later.');throw new Error(`Provider returned HTTP ${response.status}.`);}
+    if(!response.ok){if([401,403].includes(response.status))throw new Error('Access denied. Check the API key, plan, and permissions.');if(response.status===429){const e=new Error('Provider rate limit reached. Try again later.');e.status=429;const retry=response.headers.get('Retry-After');const ms=retry===null?60000:/^\d+$/.test(retry)?Number(retry)*1000:Date.parse(retry)-Date.now();e.retryAfterMs=Number.isFinite(ms)?Math.min(86400000,Math.max(60000,ms)):60000;throw e;}throw new Error(`Provider returned HTTP ${response.status}.`);}
     const reader=response.body.getReader();let size=0;const parts=[];
     while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>2*1024*1024){await reader.cancel();throw new Error('Provider response exceeded the size limit.');}parts.push(value);}
     const buffer=new Uint8Array(size);let offset=0;for(const p of parts){buffer.set(p,offset);offset+=p.length;}return JSON.parse(new TextDecoder().decode(buffer));

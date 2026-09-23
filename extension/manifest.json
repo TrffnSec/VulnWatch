@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TRFFN VulnWatch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minimum_chrome_version": "123",
   "description": "Passive technology detection, evidence, and known-version advisory checks. Quiet by default; inspect in a popup or side panel.",
   "permissions": [
@@ -50,6 +50,6 @@
     "128": "icons/icon128.png"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; connect-src https://api.osv.dev https://api.github.com https://wpscan.com https://services.nvd.nist.gov"
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; connect-src https://api.osv.dev https://api.github.com https://wpscan.com https://services.nvd.nist.gov https://api.projectdiscovery.io"
   }
 }

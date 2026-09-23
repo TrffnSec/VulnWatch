@@ -106,7 +106,7 @@ Your report still needs your research. Tragic, I know.
 ## Your browsing is your business
 
 - Detection runs locally.
-- OSV receives package names, ecosystems, and versions — **not visited URLs or page contents**. Providers still see your IP address.
+- OSV receives package names, ecosystems, and versions - **not visited URLs or page contents**. Providers still see your IP address.
 - No telemetry, user account, or cloud synchronization.
 - No cookie or Authorization-header collection.
 - No guessed target paths, exploit probes, or extra target requests.

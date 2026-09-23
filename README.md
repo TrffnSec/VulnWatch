@@ -1,6 +1,6 @@
 # Yes, I'm Lazy !!!!
 
-### So I built TRFFN VulnWatch.
+### So I built VulnWatch.
 
 **Because copying a JavaScript version into another search tab for the 47th time is apparently called “a workflow.”**
 
@@ -55,7 +55,7 @@ No account is required for the core extension. No build step is required to inst
 4. Enable **Developer mode**.
 5. Click **Load unpacked**.
 6. Select the **`extension`** folder — the one containing `manifest.json`.
-7. Pin **TRFFN VulnWatch**, open a website, and click the extension icon.
+7. Pin **VulnWatch**, open a website, and click the extension icon.
 
 That's it. You may now return to having too many tabs open.
 
